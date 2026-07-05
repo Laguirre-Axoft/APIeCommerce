@@ -316,7 +316,7 @@ Ante un error de negocio, la respuesta indica `Status: 1`, `isOk: false`, `succe
 
 Las notificaciones se habilitan durante la [puesta en marcha](#requisitos) de la Cuenta de Integración API, indicando una **URL de notificaciones** y los eventos a recibir. El receptor debe exponer un endpoint **POST** de una web API accesible por **HTTPS** (TLS 1.2 o superior).
 
-Se notifican, entre otros, los siguientes eventos:
+Se notifican los siguientes eventos:
 
 | Evento | Tópico | Cuándo se envía |
 | ------ | ------ | --------------- |
@@ -398,7 +398,7 @@ El cuerpo contiene una lista de órdenes (con el mismo formato que el [POST Orde
 }
 ```
 
-El número **máximo de órdenes por lote es 25**. Un lote inválido se rechaza con `Status: 1`, `isOk: false`, `succeeded: false` y el `Message` correspondiente: `"OrderBatch must contain at least one order"` (lote vacío o cuerpo sin la clave `OrderBatch`), `"The number of orders exceeds the batch limit of 25"` o `"<cuenta> is not registered."` (la Cuenta de Integración API se valida **una sola vez, antes del lote**: si no existe, el lote entero se rechaza sin procesar ninguna orden). Superados esos controles, el lote se procesa **orden por orden**: si una falla, el resto continúa (`Status: 0` e `isOk: true`, y el resultado por orden viaja en `Data`):
+El número **máximo de órdenes por lote es 25**. Un lote inválido se rechaza con `Status: 1`, `isOk: false`, `succeeded: false` y el `Message` correspondiente: `"OrderBatch must contain at least one order"` (lote vacío o cuerpo sin la clave `OrderBatch`), `"The number of orders exceeds the batch limit of 25"` (lote que supera el máximo permitido) o `"<cuenta> is not registered"` (la Cuenta de Integración API se valida **una sola vez, antes del lote**: si no existe, el lote entero se rechaza sin procesar ninguna orden). Superados esos controles, el lote se procesa **orden por orden**: si una falla, el resto continúa (`Status: 0` e `isOk: true`, y el resultado por orden viaja en `Data`):
 
 ```json
 {
@@ -427,9 +427,9 @@ El número **máximo de órdenes por lote es 25**. Un lote inválido se rechaza 
 
   Con los headers `ApiAuthorization` (Token de desarrollador) y `Company` (IdEmpresa) en **todas** las llamadas. Para los POST de órdenes, además el parámetro `Cuenta` en la URL. Ver [Credenciales](#credenciales).
 
-- **¿A nombre de quién se emite la factura de venta?**
+- **¿Dónde se envían los datos de facturación para las órdenes?**
 
-  El nombre del receptor se toma de la Razón Social (`BusinessName`) informada en la orden; si no viene, del apellido y nombre (`LastName` / `FirstName`). Cuando la orden trae el número de CUIL / CUIT o DNI, se consulta AFIP para completar los datos fiscales del receptor (condición de IVA, tipo y número de documento); la razón social registrada en AFIP sólo se usa cuando la orden no informó ningún nombre.
+  El nombre del receptor se toma de la Razón Social (`BusinessName`) informada en la orden; si no se informa, se toma de los campos que corresponden al apellido y nombre (`LastName` / `FirstName`). Cuando la orden trae el número de CUIL / CUIT o DNI, se consulta AFIP para completar los datos fiscales del receptor (condición de IVA, tipo y número de documento); la razón social registrada en AFIP sólo se utiliza cuando en la orden no se informó ningún nombre.
 
 <a name="novedades"></a>
 
@@ -600,7 +600,7 @@ Para la comparación de documento, CUIT y CUIL se aceptan indistintamente. Si ni
 | Campo | Requerido | Tipo | Descripción |
 | ----- | --------- | ---- | ----------- |
 | `ProductCode` | Sí | Alfanumérico (≤200) | Código del artículo de la publicación. |
-| `SKUCode` | No | Alfanumérico (≤40) | Código de [artículo](#recproduct), sinónimo o código de barras de Tango. Establece/actualiza la relación con el artículo de Tango. |
+| `SKUCode` | No | Alfanumérico (≤40) | Código de [artículo](#recproduct), sinónimo o código de barras de Tango. Establece/actualiza la relación de la publicación (ProductCode) con el artículo de Tango. |
 | `VariantCode` | No | Alfanumérico (≤200) | Código de la combinación ([escala](#recscale)). |
 | `Description` | Sí | Alfanumérico (≤400) | Descripción del artículo. |
 | `VariantDescription` | No | Alfanumérico (≤400) | Descripción de la variante. |
@@ -629,7 +629,7 @@ Si se informa este tópico, `ShippingID` pasa a ser obligatorio (numérico y may
 | `DeliveryHours` | No | Alfanumérico (≤100) | Hora de entrega. |
 | `DeliveryDate` | No | Datetime | Fecha de entrega. No puede ser anterior a `Date`. |
 
-**Tópico `CashPayments`** (opcional) — pagos en efectivo/transferencia
+**Tópico `CashPayments`** (opcional) — pagos en efectivo/transferencia/pasarelas
 
 | Campo | Requerido | Tipo | Descripción |
 | ----- | --------- | ---- | ----------- |
@@ -673,7 +673,7 @@ Si se informa este tópico, `ShippingID` pasa a ser obligatorio (numérico y may
 | 96 | DNI |
 | 99 | Sin identificar / venta global diaria |
 
-Son los tipos de documento habilitados para el ingreso de comprobantes en Tango (`IVA_TIPO_DOCUMENTO.HABILITADO_PARA_INGRESO = 'S'`). Un código no habilitado (por ejemplo 89 - LE) se rechaza con `Incorrect value - Field: DocumentType.`
+Son los tipos de documento habilitados para el ingreso de comprobantes en Tango (`IVA_TIPO_DOCUMENTO.HABILITADO_PARA_INGRESO = 'S'`). Un código no habilitado (por ejemplo, 89 - LE) se rechaza con `Incorrect value - Field: DocumentType.`
 </details>
 
 <a name="provincias"></a>
@@ -734,7 +734,7 @@ Son los tipos de documento habilitados para el ingreso de comprobantes en Tango 
 <details>
 <summary><b>Formas de Pago</b></summary>
 
-Los códigos disponibles dependen de la configuración de formas de cobro de Tango. Habitualmente:
+Los códigos disponibles dependen de la configuración de formas de cobro de Tango:
 
 | Código | Descripción |
 | ------ | ----------- |
