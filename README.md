@@ -25,6 +25,10 @@ API REST para integrar una tienda de comercio electrónico con **Tango Gestión*
   - [Ejemplos de JSON](#ejemplos)
 - [Consulta de datos](#consulta)
   - [Recursos de consulta](#recursos)
+- [Funciones de inteligencia artificial](#ai)
+  - [Datos comunes](#aidatos)
+  - [Recursos de AI](#airecursos)
+  - [Diferencias con el resto de la API](#aidiferencias)
 - [Migración desde la API de Tango Tiendas](#migracion)
 - [Consideraciones](#consideraciones)
 
@@ -55,9 +59,13 @@ Todas las rutas parten de la base `https://{llave}.connect.axoft.com/api/eCommer
 | GET | [`/PriceByCustomer`](#recpricebycustomer) | Precios por cliente. |
 | GET | [`/PriceList`](#recpricelist) | Listas de precios. |
 | GET | [`/Product`](#recproduct) | Artículos (composición, comentarios y escalas). |
+| GET | [`/ProductAssistant`](#recassistant) | Asistente de venta: con el texto del comprador busca artículos por descripción; con el código del artículo elegido sugiere complementarios o sustitutos. |
+| GET | [`/ProductComplementaries`](#reccomplementaries) | Artículos complementarios del artículo consultado. |
+| GET | [`/ProductSemanticSearch`](#recsemanticsearch) | Búsqueda de artículos por descripción, comparando por significado. |
 | GET | [`/ProductsFolder`](#recproductsfolder) | Clasificador de artículos: artículos en carpetas. |
 | GET | [`/ProductsFolderClassifier`](#recproductsclassifier) | Clasificador de artículos: carpetas. |
 | GET | [`/ProductsRelation`](#recproductsrelation) | Clasificador de artículos: relaciones. |
+| GET | [`/ProductSubstitutes`](#recsubstitutes) | Artículos sustitutos del artículo consultado. |
 | GET | [`/Publications`](#recpublications) | Publicaciones (relación artículo de la tienda ↔ artículo de Tango). |
 | GET | [`/SaleCondition`](#recsalecondition) | Condiciones de venta. |
 | GET | [`/Scale`](#recscale) | Escalas. |
@@ -251,8 +259,12 @@ Si `PageNumber` o `PageSize` son menores o iguales a 0, la respuesta reemplaza `
 | --------- | ---- | --------------- |
 | GET/POST exitoso | **200** | `succeeded: true` |
 | GET sin resultados | **200** | `succeeded: true`, `Message: "No se encontraron valores"` |
-| Datos inválidos o con formato incorrecto (GET o POST) | **400** | Cuerpo JSON con el detalle por campo en la propiedad `errors` (ver [ejemplo](#ejemplo400)). Incluye un tipo inválido en la query de un GET, p. ej. `PageSize=abc` (no numérico) |
+| Respuesta manejada de Tango Billing (sin saldo o presupuesto, opción inactiva), sólo en los [recursos de AI](#ai) | **200** | `succeeded: false` y el mensaje que devuelve Tango Billing |
+| Datos inválidos o con formato incorrecto (GET o POST) | **400** | Cuerpo JSON con el detalle por campo en la propiedad `errors` (ver [ejemplo](#ejemplo400)). Incluye un tipo inválido en la query de un GET, p. ej. `PageSize=abc` (no numérico). En los [recursos de AI](#ai) el 400 viaja con el formato de respuesta de la API (`succeeded` y `Message`), no con `errors` |
 | Falta un header de autenticación (o viene vacío), o el token es inválido | **401** | Sin cuerpo (respuesta vacía); el código de estado es el único indicador |
+| La base de la empresa no tiene SQL Server 2025, sólo en los [recursos de AI](#ai) que usan vectores | **409** | `succeeded: false`, `Message: "Este proceso requiere SQL Server 2025 o superior. Por favor, actualice la versión de SQL Server."` |
+| No hay turnos libres para atender la consulta, sólo en los [recursos de AI](#ai) | **429** | `succeeded: false`, `Message: "El servicio está procesando otras consultas. Reintente en unos instantes."`. El límite de consultas simultáneas es por instalación y se comparte entre todas las empresas que atiende; no viaja `Retry-After` |
+| Venció la espera máxima de las llamadas al modelo, sólo en los [recursos de AI](#ai) | **504** | `succeeded: false`, `Message: "El servicio no respondió a tiempo. Reintente en unos instantes."`. La consulta no se factura |
 | Ruta inexistente bajo `Api/eCommerce` | **404** | `Message: "No HTTP resource was found that matches the request URI '...'."` (única clave del cuerpo) |
 | Método HTTP no soportado por el recurso (por ejemplo, DELETE a cualquier recurso, o GET a `/Dummy`, que es POST) | **405** | Sin cuerpo (respuesta vacía); el código de estado es el único indicador |
 
@@ -2368,12 +2380,367 @@ Devuelve el saldo agrupado por artículo (sin discriminar sucursal ni depósito:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
+
+<a name="ai"></a>
+
+## Funciones de inteligencia artificial
+
+[<sub>Volver al índice</sub>](#inicio)
+
+Cuatro recursos GET ponen a disposición de la tienda las funciones de inteligencia artificial que ya usan Tango Gestión y Tango Punto de Venta:
+
+- [Artículos sustitutos (`ProductSubstitutes`)](#recsubstitutes): qué puede llevar el comprador en lugar del artículo que está mirando.
+- [Artículos complementarios (`ProductComplementaries`)](#reccomplementaries): qué conviene agregar para completar la compra.
+- [Búsqueda por descripción (`ProductSemanticSearch`)](#recsemanticsearch): qué artículos responden a lo que escribió el comprador, comparando por significado y no por palabras exactas.
+- [Asistente de venta (`ProductAssistant`)](#recassistant): integra a los tres.
+
+Sustitutos, complementarios y búsqueda por descripción son recursos separados, cada uno con sus datos de consulta y sus requisitos: complementarios no exige SQL Server 2025 ni vectores. El asistente los combina en una sola consulta: decide cuál de los tres responde según los datos que recibe. La tienda elige cómo integrarse: llama a cada recurso según lo que necesita en cada pantalla, o llama al asistente, que con el texto del comprador busca y con el código del artículo elegido sugiere complementarios o sustitutos según la disponibilidad.
+
+**Qué necesita la empresa antes de consultarlos**
+
+- Artículos con la opción **Publica en Tango eCommerce** marcada en la ficha del artículo: los cuatro recursos sólo devuelven, y sólo aceptan como consultado, artículos con esa marca (ver [el catálogo de eCommerce](#aicatalogo)).
+- SQL Server 2025 o superior en la base de la empresa. Lo exigen los sustitutos, la búsqueda y el asistente; los complementarios no.
+- Los vectores generados con el proceso *Actualización de datos para búsqueda semántica de artículos* del módulo Stock, para los sustitutos y la búsqueda. Alcanzan sólo a los artículos marcados con "Incluir en búsqueda semántica".
+- Los artículos clasificados con el proceso *Clasificación de artículos por AI*, para los complementarios.
+- Las credenciales de Tango AI y de Tango Billing registradas.
+
+Por la diferencia de alcance entre los dos procesos, un mismo catálogo puede responder complementarios de artículos que no aparecen en sustitutos ni en la búsqueda.
+
+<a name="aidatos"></a>
+
+### Datos comunes
+
+[<sub>Volver al índice</sub>](#inicio)
+
+| Parámetro | Tipo | Descripción |
+| --------- | ---- | ----------- |
+| `IncludeUnavailable` | bool | Incluye los artículos sin disponibilidad. Por omisión toma el valor configurado en Tango, cuyo valor inicial es `false`. |
+| `IncludeStock` | bool | Anida los saldos por depósito en cada artículo. Por omisión `false`. |
+| `IncludePrices` | bool | Anida los precios por lista en cada artículo. Por omisión `false`. |
+| `Centraliza` | bool | Informa los saldos centralizados, igual que en [`Stock`](#recstock). Gobierna la disponibilidad y el `Stock` anidado. Por omisión `false`. En `true` sobre una empresa que no centraliza, ningún artículo tiene disponibilidad. |
+| `PageNumber` | int | Sólo admite el valor `1`: la respuesta es de página única. Otro valor responde **400**. |
+| `PageSize` | int | Máximo de resultados. Mínimo `1`; por omisión `50`, nunca más que el tope del recurso: un valor mayor se recorta sin error y la respuesta informa el aplicado. En complementarios se valida y no rige: la respuesta informa `CategoryCount × ProductsPerCategory`. |
+
+**Qué devuelve cada artículo**
+
+`SKUCode`, `Description`, `MeasureUnitCode` y `Availability`; en los complementarios, además `Category`. `Availability` es verdadera cuando la suma de los saldos de stock del artículo es mayor que cero: los mismos saldos que informa [`Stock`](#recstock), sin descontar el comprometido ni las órdenes pendientes.
+
+<a name="aicatalogo"></a>
+
+**El catálogo de eCommerce**
+
+Un artículo pertenece al catálogo de eCommerce cuando tiene marcada la opción **Publica en Tango eCommerce** en la ficha del artículo y su perfil no es Inhabilitado. Tango sólo admite la marca en artículos que [`Product`](#recproduct) publica, así que el catálogo es un subconjunto de lo que devuelven [`Product`](#recproduct) y [`Stock`](#recstock), que no miran la marca y sí publican el perfil Inhabilitado. La marca es un dato del artículo, no de una publicación: no importa si el artículo está relacionado con una publicación de MercadoLibre o Tienda Nube. Pertenecer al catálogo es independiente de tener vectores, estar clasificado o tener disponibilidad: los vectores y la clasificación deciden qué artículos del catálogo puede encontrar cada recurso, y la disponibilidad decide cuáles de los encontrados viajan, salvo que la consulta envíe `IncludeUnavailable`. El artículo consultado también debe pertenecer al catálogo.
+
+Los artículos sin disponibilidad no viajan salvo que la consulta o la configuración de Tango los pida; cuando viajan, `Availability` en `false` los distingue. El descarte se aplica **antes** de elegir los resultados: los que viajan son los más parecidos entre los disponibles.
+
+No viaja ningún texto generado por la inteligencia artificial ni el indicador interno de parecido.
+
+**El orden de `Data`**
+
+En sustitutos, en la búsqueda y en los sustitutos del asistente: por cercanía y, a igual cercanía, por código de artículo ascendente. En complementarios: por las categorías en el orden sugerido y, dentro de cada categoría, por código de artículo ascendente. Cuando el asistente recibe código y texto, los complementarios se ordenan por cercanía al texto cruzando las categorías, y los artículos sin vector van al final.
+
+**El nivel de precisión (`AccuracyLevel`)**
+
+Define cuán parecidos deben ser los resultados. Admite `maxima`, `alta`, `equilibrada`, `baja` y `minima`, sin distinguir mayúsculas de minúsculas. Por omisión toma el valor configurado en Tango, cuyo valor inicial es `equilibrada`. A mayor exigencia, menos resultados y más parecidos: con los niveles altos es esperable que una consulta vuelva vacía. La respuesta informa el nivel aplicado en minúscula y sin tilde.
+
+**Valores predeterminados configurables**
+
+`AccuracyLevel`, `IncludeUnavailable` e `IncludeSameScaleBase` toman su valor predeterminado de la solapa **Asistente de ventas (eCommerce)** del proceso *Parámetros de AI* de Tango. El dato enviado en la consulta siempre pisa al configurado.
+
+**Respuestas vacías**
+
+Una consulta válida sin resultados responde **200** con la lista vacía. `Message` indica la causa cuando se conoce:
+
+- `El artículo indicado no existe.`: el código no existe o el artículo no pertenece al catálogo.
+- `El artículo no tiene vectores vigentes. Un operador de Tango debe generarlos.`: en sustitutos, también los del asistente.
+- `No hay vectores vigentes. Un operador de Tango debe generarlos.`: la empresa no tiene vectores, en la búsqueda y en el asistente sin código.
+- `El artículo no está clasificado. Un operador de Tango debe clasificarlo.`: en complementarios.
+- `Las categorías sugeridas no tienen artículos que cumplan los filtros de la consulta.`: en complementarios.
+- `No se encontraron valores`: no hay resultados por otra causa.
+
+La respuesta vacía informa los mismos datos que la rama ejecutada: `RecommendationType` y `AccuracyLevel` en sustitutos, `RecommendationType` y `Scope` en complementarios, sólo `AccuracyLevel` en la búsqueda.
+
+**Respuesta reducida con 200**
+
+Cuatro situaciones responden **200** con `succeeded: false` y `Message`, sin `Paging` ni `Data`. Lea `succeeded` antes de deserializar `Paging` y `Data`.
+
+- Licencia de la empresa inválida: el mensaje de la validación de licencia.
+- Funciones de AI no disponibles para la empresa, porque no tiene configuradas las credenciales de Tango AI o de Tango Billing: `Las funciones de inteligencia artificial no están disponibles para esta empresa.`.
+- Respuesta manejada de Tango Billing, incluida la falta de saldo o de presupuesto: el mensaje que devuelve Tango Billing.
+- Error imprevisto: `Ocurrió un error obteniendo los datos de la consulta. Comuníquese con el proveedor del servicio.`.
+
+<a name="airecursos"></a>
+
+### Recursos de AI
+
+[<sub>Volver al índice</sub>](#inicio)
+
+<a name="recsubstitutes"></a>
+
+#### Artículos sustitutos — `GET /ProductSubstitutes`
+
+[<sub>Volver a recursos de AI</sub>](#airecursos)
+
+Devuelve los artículos parecidos al consultado, del más al menos parecido. No consume inteligencia artificial al consultar: compara vectores calculados de antemano, así que es el más rápido de los cuatro. El tope de resultados es **500**.
+
+| Parámetro | Tipo | Descripción |
+| --------- | ---- | ----------- |
+| `SkuCode` | string | **Obligatorio.** Código completo de un artículo del catálogo, hasta 15 caracteres. Requiere que tenga sus vectores generados. |
+| `AccuracyLevel` | string | Nivel de precisión. Ver [el nivel de precisión](#aidatos). |
+| `IncludeSameScaleBase` | bool | En `false` excluye los artículos que comparten la base de escala del consultado (por ejemplo, el mismo producto en otro talle). Por omisión toma el valor configurado en Tango, cuyo valor inicial es `true`. |
+
+<details>
+<summary>Respuesta</summary>
+
+```json
+{
+  "Paging": {
+    "PageNumber": 1,
+    "PageSize": 10,
+    "MoreData": false
+  },
+  "Data": [
+    {
+      "SKUCode": "CAF-330",
+      "Description": "Cafetera Térmica Boreal",
+      "MeasureUnitCode": "UNI",
+      "Availability": true
+    }
+  ],
+  "AccuracyLevel": "equilibrada",
+  "Message": null,
+  "succeeded": true
+}
+```
+</details>
+
+<a name="reccomplementaries"></a>
+
+#### Artículos complementarios — `GET /ProductComplementaries`
+
+[<sub>Volver a recursos de AI</sub>](#airecursos)
+
+Devuelve los artículos complementarios en una lista plana, con la categoría de cada uno como un dato más de la fila. Consume inteligencia artificial en cada consulta, porque el modelo sugiere las categorías en el momento: es el más lento de los cuatro. Es el único que no exige SQL Server 2025.
+
+| Parámetro | Tipo | Descripción |
+| --------- | ---- | ----------- |
+| `SkuCode` | string | **Obligatorio.** Código completo de un artículo del catálogo, hasta 15 caracteres. Requiere que esté clasificado en una carpeta existente. |
+| `CategoryCount` | int | Cantidad de categorías a sugerir, de 1 a 5. Por omisión `3`. Es un máximo. |
+| `ProductsPerCategory` | int | Artículos por categoría, de 1 a 50. Por omisión `50`. Es un máximo. |
+| `Scope` | string | Alcance de las categorías sugeridas: `directo` sugiere solo las categorías más evidentes, `ecosistema` explora asociaciones más lejanas. Admite `directo`, `accesorio` y `ecosistema`. Por omisión `accesorio`. |
+
+El tamaño de la respuesta lo controlan `CategoryCount` y `ProductsPerCategory`, no `PageSize`; `Paging.PageSize` informa su producto. El modelo sugiere hasta cinco categorías, se descartan las que no aportan artículos nuevos y recién después se recorta a `CategoryCount`, así que la primera sugerencia del modelo puede no aparecer. Dentro de cada categoría se toman, sin medir parecido, los primeros artículos según `STA11.ID_STA11`, el identificador de la tabla de artículos de Tango, que crece con cada alta, así que en la práctica salen los artículos más antiguos. Un artículo sugerido para dos categorías viaja una sola vez, con la primera, y en la segunda igual cuenta dentro de `ProductsPerCategory`, así que esa categoría puede traer menos artículos que los pedidos. Las carpetas en las que está clasificado el artículo consultado no se sugieren como complemento, así que ni él ni los demás artículos de esas carpetas viajan.
+
+<details>
+<summary>Respuesta</summary>
+
+```json
+{
+  "Paging": {
+    "PageNumber": 1,
+    "PageSize": 150,
+    "MoreData": false
+  },
+  "Data": [
+    {
+      "SKUCode": "FIL-040",
+      "Description": "Filtros de papel N.º 4",
+      "MeasureUnitCode": "UNI",
+      "Availability": true,
+      "Category": "Preparación"
+    },
+    {
+      "SKUCode": "JAR-620",
+      "Description": "Jarra térmica 1 L",
+      "MeasureUnitCode": "UNI",
+      "Availability": true,
+      "Category": "Servicio"
+    }
+  ],
+  "Scope": "accesorio",
+  "Message": null,
+  "succeeded": true
+}
+```
+</details>
+
+<a name="recsemanticsearch"></a>
+
+#### Búsqueda por descripción — `GET /ProductSemanticSearch`
+
+[<sub>Volver a recursos de AI</sub>](#airecursos)
+
+Recibe el texto que escribió el comprador y devuelve los artículos que responden a la consulta. La comparación es por significado: el texto se convierte en un vector y se compara contra los vectores del catálogo. Consume una llamada de inteligencia artificial por consulta. El tope de resultados es **200**.
+
+| Parámetro | Tipo | Descripción |
+| --------- | ---- | ----------- |
+| `SearchText` | string | **Obligatorio.** Hasta 1.000 caracteres. Un texto mayor se rechaza con **400**, no se recorta. |
+| `AccuracyLevel` | string | Nivel de precisión. Ver [el nivel de precisión](#aidatos). |
+
+<details>
+<summary>Respuesta</summary>
+
+```json
+{
+  "Paging": {
+    "PageNumber": 1,
+    "PageSize": 10,
+    "MoreData": false
+  },
+  "Data": [
+    {
+      "SKUCode": "JAR-620",
+      "Description": "Jarra térmica 1 L",
+      "MeasureUnitCode": "UNI",
+      "Availability": true
+    },
+    {
+      "SKUCode": "CAF-330",
+      "Description": "Cafetera Térmica Boreal",
+      "MeasureUnitCode": "UNI",
+      "Availability": true
+    }
+  ],
+  "AccuracyLevel": "equilibrada",
+  "Message": null,
+  "succeeded": true
+}
+```
+</details>
+
+<a name="recassistant"></a>
+
+#### Asistente de venta — `GET /ProductAssistant`
+
+[<sub>Volver a recursos de AI</sub>](#airecursos)
+
+Integra a los otros tres. La consulta debe enviar al menos uno de estos dos datos:
+
+- **Sólo el texto:** el asistente busca y devuelve lo mismo que la búsqueda por descripción.
+- **El código del artículo que eligió el comprador:** el asistente sugiere complementarios si el artículo tiene disponibilidad y sustitutos si no la tiene. Con `RecommendationType` la tienda pide una sugerencia en particular.
+- **Los dos:** en sustitutos, los candidatos salen del parecido al artículo y el texto los ordena; si hay más candidatos que `PageSize`, el texto decide cuáles viajan. En complementarios, el texto sólo ordena, cruzando las categorías. Si la empresa no tiene vectores vigentes, el texto se ignora. Si el texto no se puede convertir en vector, la consulta completa falla con `succeeded: false`.
+
+| Parámetro | Tipo | Descripción |
+| --------- | ---- | ----------- |
+| `SkuCode` | string | Código completo de un artículo del catálogo, hasta 15 caracteres. Obligatorio si no se envía `SearchText`. |
+| `SearchText` | string | Texto del comprador, hasta 1.000 caracteres. Obligatorio si no se envía `SkuCode`. |
+| `RecommendationType` | string | `Complementarios` o `Sustitutos`, un solo valor por consulta. Sin el dato, decide la disponibilidad del artículo. Sin `SkuCode`, un valor válido se ignora y no viaja en la respuesta; un valor desconocido o repetido responde **400** igual. |
+| `AccuracyLevel` | string | Nivel de precisión al buscar y al devolver sustitutos. |
+| `IncludeSameScaleBase` | bool | Aplica a los sustitutos, con el mismo significado y predeterminado que en [`ProductSubstitutes`](#recsubstitutes). |
+| `CategoryCount`, `ProductsPerCategory`, `Scope` | | Aplican a los complementarios, con el mismo significado que en [`ProductComplementaries`](#reccomplementaries). |
+
+El tope es el del recurso equivalente: 200 al buscar, 500 en sustitutos, y 5 categorías de hasta 50 artículos en complementarios. Una consulta sin código y sin texto responde **400**. Un código que no existe o no pertenece al catálogo responde vacío con la causa: como sustitutos si la consulta no envía `RecommendationType`, y como complementarios si lo envía en `Complementarios`.
+
+<details>
+<summary>Respuesta al sugerir complementarios</summary>
+
+```json
+{
+  "Paging": {
+    "PageNumber": 1,
+    "PageSize": 150,
+    "MoreData": false
+  },
+  "Data": [
+    {
+      "SKUCode": "FIL-040",
+      "Description": "Filtros de papel N.º 4",
+      "MeasureUnitCode": "UNI",
+      "Availability": true,
+      "Category": "Preparación"
+    }
+  ],
+  "RecommendationType": "Complementarios",
+  "Scope": "accesorio",
+  "Message": null,
+  "succeeded": true
+}
+```
+</details>
+
+<details>
+<summary>Respuesta al sugerir sustitutos</summary>
+
+```json
+{
+  "Paging": {
+    "PageNumber": 1,
+    "PageSize": 10,
+    "MoreData": false
+  },
+  "Data": [
+    {
+      "SKUCode": "CAF-330",
+      "Description": "Cafetera Térmica Boreal",
+      "MeasureUnitCode": "UNI",
+      "Availability": true
+    }
+  ],
+  "RecommendationType": "Sustitutos",
+  "AccuracyLevel": "equilibrada",
+  "Message": null,
+  "succeeded": true
+}
+```
+</details>
+
+**Saldos y precios anidados**
+
+Con `IncludeStock` e `IncludePrices` cada artículo lleva sus saldos y sus precios, con la misma forma que en [`Stock`](#recstock) y [`Price`](#recprice), recortados a los datos que estos recursos informan. `Stock` equivale a consultar [`Stock`](#recstock) con `DiscountPendingOrders` en `false`. Las colecciones viajan completas: `Paging` describe sólo a `Data`.
+
+```json
+{
+  "SKUCode": "CAF-330",
+  "Description": "Cafetera Térmica Boreal",
+  "MeasureUnitCode": "UNI",
+  "Availability": true,
+  "Stock": [
+    {
+      "WarehouseCode": "1",
+      "StoreNumber": 1,
+      "Quantity": 4.0,
+      "PendingQuantity": 0.0,
+      "EngagedQuantity": 1.0
+    }
+  ],
+  "Prices": [
+    {
+      "PriceListNumber": 1,
+      "Price": 102500.0,
+      "DatePrice": "2026-08-01T09:00:00",
+      "ValidityDateSince": null,
+      "ValidityDateUntil": null
+    }
+  ]
+}
+```
+
+Un artículo sin saldos o sin precios viaja con la colección vacía; si la consulta no los pide, la colección no viaja.
+
+<a name="aidiferencias"></a>
+
+### Diferencias con el resto de la API
+
+[<sub>Volver al índice</sub>](#inicio)
+
+Estos cuatro recursos se apartan del resto en los siguientes puntos:
+
+- **`SkuCode` identifica exactamente un artículo del catálogo:** debe coincidir con el código completo, de hasta 15 caracteres. En los demás recursos actúa como filtro parcial. Sin coincidencia, o con un artículo fuera del catálogo, la respuesta es **200** con la lista vacía y el mensaje que lo indica.
+- **Los booleanos admiten los literales `true` y `false`**, no `1` y `0`. Un dato que no se puede interpretar responde **400** con `El valor de {dato} no es válido.`.
+- **Los valores de dominio no distinguen mayúsculas de minúsculas** (`AccuracyLevel`, `Scope`, `RecommendationType`) y la respuesta los informa en su forma canónica.
+- **Cada dato se envía una sola vez.** `RecommendationType` repetido responde **400**; para los demás datos el resultado no está definido.
+- **La respuesta es de página única:** `MoreData` siempre en `false` y `PageNumber` sólo admite `1`. Cada página costaría como una consulta nueva, porque la comparación de vectores se ejecuta completa cada vez.
+- **El 400 viaja con el formato de respuesta de la API** (`succeeded` y `Message`), no con la propiedad `errors` de los demás recursos, y nombra una sola causa.
+- **No llevan `TotalCount`, `PagingError` ni `OrderError`.**
+- **Sólo viajan artículos con la marca Publica en Tango eCommerce y perfil distinto de Inhabilitado**, aunque tengan vectores o clasificación. [`Product`](#recproduct) y [`Stock`](#recstock) no miran la marca y publican el perfil Inhabilitado.
+- **Cada consulta tiene una espera máxima para las llamadas al modelo.** Al vencer, la respuesta es **504** con `succeeded: false` y el mensaje que invita a reintentar, y la consulta no se factura. El valor de la espera no forma parte del contrato.
+- **Las respuestas viajan con `Cache-Control: no-store`.**
 
 <a name="migracion"></a>
 
