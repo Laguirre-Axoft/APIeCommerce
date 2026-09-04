@@ -534,6 +534,53 @@ En este caso se informa la unidad de **Stock 1** (`SelectMeasureUnit: "P"`), por
 - **[Transporte](#rectransport)**: si la condición de venta es *Contado*, se valida que el transporte informado **no tenga recargo** (`SurchargePercentage = 0`).
 - **Pagos**: sólo pueden informarse `CashPayments` / `Payments` cuando la condición de venta es *Contado* y la orden **no** fue acordada con el vendedor. Si la orden fue acordada con el vendedor (`AgreedWithSeller: true`), la condición de venta debe ser *Contado* y no debe informarse ningún pago.
 
+<a name="negativos"></a>
+
+#### Renglones con importes negativos
+
+La API acepta los mismos signos que el circuito manual de Pedidos de Tango. Un renglón puede tener precio unitario negativo con cantidad positiva, o cantidad negativa con precio positivo, y el precio unitario puede ser 0. Lo que no se admite es una cantidad en 0, ni que la cantidad y el precio unitario sean negativos **a la vez en el mismo renglón** (el importe del renglón quedaría positivo).
+
+| Cantidad | Precio unitario | Resultado |
+| -------- | --------------- | --------- |
+| Positiva | Positivo o 0 | Se acepta. |
+| Positiva | Negativo | Se acepta. |
+| Negativa | Positivo o 0 | Se acepta. |
+| Negativa | Negativo | Se rechaza: `OrderItems - Quantity and UnitPrice can't be negative at the same time.` |
+| 0 (o ausente) | Cualquiera | Se rechaza: `OrderItems - Quantity must be different from zero.` |
+
+La restricción es **por renglón, no por orden**: una misma orden puede combinar un renglón con cantidad negativa y otro con precio negativo.
+
+Como consecuencia, el `Total` de la orden puede ser negativo cuando los renglones negativos superan a los positivos. En ese caso el control de `PaidTotal` contra `Total` no aplica (ver [fórmulas de validación](#formulas)).
+
+<details>
+<summary>Ejemplo: orden con un renglón negativo</summary>
+
+```json
+{
+  "Total": 6000.0,
+  "ValidateTotalWithItems": true,
+  "OrderItems": [
+    {
+      "ProductCode": "203",
+      "SKUCode": "0100200659",
+      "Description": "LAVARROPAS AUTOM. MOD.BLUE",
+      "Quantity": 1.0,
+      "UnitPrice": 10000.0
+    },
+    {
+      "ProductCode": "500",
+      "SKUCode": "0100200700",
+      "Description": "BONIFICACION",
+      "Quantity": 1.0,
+      "UnitPrice": -4000.0
+    }
+  ]
+}
+```
+
+El total se calcula con la [fórmula](#formulas) habitual, respetando los signos: `10000 + (-4000) = 6000`.
+</details>
+
 <a name="djson"></a>
 
 ### Datos del JSON
@@ -549,7 +596,7 @@ Los importes numéricos se expresan con hasta 2 decimales, usando el punto como 
 | `OrderID` | Sí | Alfanumérico (≤200) | Identificador único de la orden. No puede ser vacío. Reenviar el mismo `OrderID` modifica la orden. |
 | `OrderNumber` | Sí | Alfanumérico (≤200) | Número con el que se identifica la orden. No puede ser vacío. |
 | `Date` | Sí | Datetime | Fecha de la orden. No puede ser anterior a 30 días de la fecha actual ni a la fecha de inicio configurada en la cuenta. |
-| `Total` | Sí | Numérico (≥0) | Importe total de la orden. |
+| `Total` | Sí | Numérico | Importe total de la orden. Admite valores negativos (por ejemplo, cuando los renglones negativos superan a los positivos). |
 | `TotalDiscount` | No | Numérico (≥0) | Descuento total de la operación. |
 | `PaidTotal` | No | Numérico (≥0) | Importe total pagado. |
 | `FinancialSurcharge` | No | Numérico (≥0) | Recargo financiero. |
@@ -583,7 +630,7 @@ Total     = ∑[ (UnitPrice − (UnitPrice / 100 × DiscountPercentage)) × Quan
 PaidTotal = ∑(Payments.Total) + ∑(CashPayments.PaymentTotal)
 ```
 
-`Total` se valida contra su fórmula sólo si `ValidateTotalWithItems = true`. La igualdad de `PaidTotal` con la suma de los pagos (`∑Payments.Total + ∑CashPayments.PaymentTotal`) se valida **siempre**; en particular, informar un `PaidTotal` distinto de 0 sin detallar pagos hace que la orden se rechace. `ValidateTotalWithPaidTotal` agrega además el control de que `PaidTotal` no supere `Total`.
+`Total` se valida contra su fórmula sólo si `ValidateTotalWithItems = true`. La igualdad de `PaidTotal` con la suma de los pagos (`∑Payments.Total + ∑CashPayments.PaymentTotal`) se valida **siempre**; en particular, informar un `PaidTotal` distinto de 0 sin detallar pagos hace que la orden se rechace. `ValidateTotalWithPaidTotal` agrega además el control de que `PaidTotal` no supere `Total`, que sólo aplica cuando `Total` es mayor o igual a cero: con un total negativo la comparación se omite, porque `PaidTotal` no admite valores negativos y siempre resultaría mayor.
 
 **Tópico `Customer`** (obligatorio)
 
@@ -626,8 +673,8 @@ Para la comparación de documento, CUIT y CUIL se aceptan indistintamente. Si ni
 | `VariantCode` | No | Alfanumérico (≤200) | Código de la combinación ([escala](#recscale)). |
 | `Description` | Sí | Alfanumérico (≤400) | Descripción del artículo. |
 | `VariantDescription` | No | Alfanumérico (≤400) | Descripción de la variante. |
-| `Quantity` | Sí | Numérico (>0) | Cantidad. |
-| `UnitPrice` | Sí | Numérico (>0) | Precio unitario. |
+| `Quantity` | Sí | Numérico, distinto de 0 | Cantidad. Admite negativos. Ver [renglones con importes negativos](#negativos). |
+| `UnitPrice` | Sí | Numérico | Precio unitario. Admite 0 y negativos. Ver [renglones con importes negativos](#negativos). |
 | `DiscountPercentage` | No | Numérico (0–99,99) | Porcentaje de descuento. |
 | `SelectMeasureUnit` | No | Alfanumérico (1) | Unidad de medida seleccionada: `V`, `P` o `S` (por defecto `V`). Ver [DUM](#novedades). |
 | `MeasureCode` | No | Alfanumérico | Código de [medida](#recmeasure) con el que se genera el pedido. |
