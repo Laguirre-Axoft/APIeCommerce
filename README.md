@@ -180,9 +180,9 @@ Salvo `Dummy`, **todas las respuestas GET usan el mismo formato**. Los datos se 
   },
   "Data": [ /* registros del recurso */ ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 
@@ -208,9 +208,9 @@ Un GET sin resultados responde **200** con la lista vacía:
   },
   "Data": [],
   "PagingError": null,
+  "Message": "No se encontraron valores",
   "OrderError": null,
-  "succeeded": true,
-  "Message": "No se encontraron valores"
+  "succeeded": true
 }
 ```
 
@@ -233,12 +233,12 @@ Si `PageNumber` o `PageSize` son menores o iguales a 0, la respuesta reemplaza `
 
 ```json
 {
-  "Message": null,
-  "OrderError": null,
   "PagingError": {
     "ErrorNumber": "Invalid page number",
     "ErrorSize": "Invalid page size"
   },
+  "Message": null,
+  "OrderError": null,
   "succeeded": false
 }
 ```
@@ -304,9 +304,9 @@ La respuesta usa la forma `Status`/`Message`/`Data`/`isOk` (la misma que devuelv
 ```json
 {
   "Status": 0,
-  "Message": "Order ORD-1 in process",
   "Data": null,
   "isOk": true,
+  "Message": "Order ORD-1 in process",
   "OrderError": null,
   "succeeded": true
 }
@@ -417,10 +417,6 @@ El número **máximo de órdenes por lote es 25**. Un lote inválido se rechaza 
 ```json
 {
   "Status": 0,
-  "Message": "batch processed",
-  "isOk": true,
-  "OrderError": null,
-  "succeeded": true,
   "Data": [
     {
       "OrderID": "1,3",
@@ -432,7 +428,11 @@ El número **máximo de órdenes por lote es 25**. Un lote inválido se rechaza 
       "Processed": false,
       "ValidationException": "ApertureValidationException: ..."
     }
-  ]
+  ],
+  "isOk": true,
+  "Message": "batch processed",
+  "OrderError": null,
+  "succeeded": true
 }
 ```
 
@@ -1130,9 +1130,9 @@ Con `IncludeInvoices=true`, cada orden incluye los datos del comprobante:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 
@@ -1199,9 +1199,9 @@ Devuelve la relación entre cada orden y el comprobante electrónico asociado al
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -1242,9 +1242,9 @@ Relación entre el artículo de la tienda y el artículo de Tango.
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -1293,9 +1293,9 @@ _Recuerde:_ `ProvinceCode` es el código AFIP de la provincia (ver [Provincias](
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -1341,9 +1341,9 @@ Devuelve tanto las sucursales (`CentralizedStock: false`) como los depósitos de
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -1383,9 +1383,9 @@ Devuelve tanto las sucursales (`CentralizedStock: false`) como los depósitos de
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -1419,9 +1419,9 @@ Devuelve tanto las sucursales (`CentralizedStock: false`) como los depósitos de
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -1455,9 +1455,9 @@ Devuelve tanto las sucursales (`CentralizedStock: false`) como los depósitos de
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -1543,9 +1543,9 @@ Devuelve los artículos con su composición, comentarios y valores de escala. S�
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -1621,9 +1621,9 @@ https://{llave}.connect.axoft.com/api/eCommerce/Stock?UpdatedDate=2026-02-14T20:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -1673,9 +1673,9 @@ Devuelve el saldo agrupado por artículo (sin discriminar sucursal ni depósito:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -1715,9 +1715,9 @@ Devuelve el saldo agrupado por artículo (sin discriminar sucursal ni depósito:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -1757,9 +1757,9 @@ Devuelve el saldo agrupado por artículo (sin discriminar sucursal ni depósito:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -1795,9 +1795,9 @@ Devuelve el saldo agrupado por artículo (sin discriminar sucursal ni depósito:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -1833,9 +1833,9 @@ Devuelve el saldo agrupado por artículo (sin discriminar sucursal ni depósito:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -1925,9 +1925,9 @@ Devuelve el saldo agrupado por artículo (sin discriminar sucursal ni depósito:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -1961,9 +1961,9 @@ Devuelve el saldo agrupado por artículo (sin discriminar sucursal ni depósito:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -2007,9 +2007,9 @@ Devuelve el saldo agrupado por artículo (sin discriminar sucursal ni depósito:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -2044,9 +2044,9 @@ Devuelve el saldo agrupado por artículo (sin discriminar sucursal ni depósito:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -2083,9 +2083,9 @@ Devuelve el saldo agrupado por artículo (sin discriminar sucursal ni depósito:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -2119,9 +2119,9 @@ Devuelve el saldo agrupado por artículo (sin discriminar sucursal ni depósito:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -2157,9 +2157,9 @@ Devuelve el saldo agrupado por artículo (sin discriminar sucursal ni depósito:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -2194,9 +2194,9 @@ Devuelve el saldo agrupado por artículo (sin discriminar sucursal ni depósito:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -2230,9 +2230,9 @@ Devuelve el saldo agrupado por artículo (sin discriminar sucursal ni depósito:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -2263,9 +2263,9 @@ Devuelve el saldo agrupado por artículo (sin discriminar sucursal ni depósito:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -2300,9 +2300,9 @@ Devuelve el saldo agrupado por artículo (sin discriminar sucursal ni depósito:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
@@ -2335,9 +2335,9 @@ Devuelve el saldo agrupado por artículo (sin discriminar sucursal ni depósito:
     }
   ],
   "PagingError": null,
+  "Message": null,
   "OrderError": null,
-  "succeeded": true,
-  "Message": null
+  "succeeded": true
 }
 ```
 </details>
